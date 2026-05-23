@@ -1,4 +1,4 @@
-# `float-arc-template`
+# `float-arc-prediction-market-template`
 
 **A binary prediction market on Arc that earns USYC yield on idle stakes.**
 Fork this repo, change three things, ship.

@@ -1,5 +1,5 @@
 {
-  "name": "float-arc-template",
+  "name": "float-arc-prediction-market-template",
   "version": "0.1.0",
   "description": "Binary prediction market template on Arc Testnet with FLOAT yield routing on idle stakes.",
   "private": true,
