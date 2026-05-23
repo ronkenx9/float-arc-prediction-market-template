@@ -96,9 +96,20 @@ contract PredictionMarket {
 
         USDC.safeTransferFrom(msg.sender, address(this), amount);
 
+        // ─── Checks-Effects-Interactions: update state before external calls ───
+        if (yes) {
+            yesBets[msg.sender] += amount;
+            yesPool             += amount;
+        } else {
+            noBets[msg.sender]  += amount;
+            noPool              += amount;
+        }
+
         // ───────────────── FLOAT ─────────────────
         // Park only (1 - RESERVE_BPS) of the deposit. The reserve stays
-        // liquid as a safety buffer against any NAV underperformance.
+        // liquid in this contract as a safety buffer against any NAV
+        // underperformance from the parked share.
+        // Note: forCEI compliance, accounting is updated above before this block.
         uint256 parkAmount    = (amount * (BPS_DENOM - RESERVE_BPS)) / BPS_DENOM;
         uint256 reserveAmount = amount - parkAmount;
 
@@ -108,14 +119,6 @@ contract PredictionMarket {
         }
         emit Bet(msg.sender, yes, amount, parkAmount, reserveAmount);
         // ─────────────────────────────────────────
-
-        if (yes) {
-            yesBets[msg.sender] += amount;
-            yesPool             += amount;
-        } else {
-            noBets[msg.sender]  += amount;
-            noPool              += amount;
-        }
     }
 
     /* ──────────────────────────────────────────────────────────────
@@ -165,14 +168,15 @@ contract PredictionMarket {
 
         uint256 payout;
         uint256 myStake = yesBets[msg.sender] + noBets[msg.sender];
+        require(myStake > 0, "no stake in this market");
 
         if (outcome == Outcome.CANCELLED) {
             payout = myStake;
         } else if (outcome == Outcome.SHORTFALL) {
             // Pro-rata refund of what was actually recovered.
-            // Every bettor gets the same haircut, no winners/losers.
+            // Every bettor gets the same haircut — no winners or losers,
+            // just a proportional slice of what the vault returned.
             uint256 principal = yesPool + noPool;
-            require(principal > 0, "no principal");
             payout = (myStake * recoveredAtResolve) / principal;
         } else if (outcome == Outcome.YES) {
             require(yesBets[msg.sender] > 0, "no winning bet");
@@ -201,7 +205,11 @@ contract PredictionMarket {
         uint256 liquid    = USDC.balanceOf(address(this));
         uint256 principal = yesPool + noPool;
 
-        // Skim only what's above the principal-still-owed-to-bettors.
+        // Skim only what's above the original principal pool size.
+        // Note: this uses the *original* pool totals, not unclaimed remainder.
+        // Yield accumulates as skimmable only once FLOAT returns more than
+        // what was parked. On the current Arc Testnet vault this is simulated
+        // via distributeSimulatedYield(); on mainnet USYC appreciates in place.
         uint256 skimmable = liquid > principal ? liquid - principal : 0;
         require(skimmable > 0, "nothing to skim");
 
