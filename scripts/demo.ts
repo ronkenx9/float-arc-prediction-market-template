@@ -90,14 +90,18 @@ async function main() {
   const receipt  = await claimTx.wait();
 
   const claimedEvent = receipt?.logs
-    .map((log: ethers.Log) => {
-      try { return market.interface.parseLog(log as never); }
-      catch { return null; }
+    .map((log) => {
+      try {
+        return market.interface.parseLog({
+          topics: Array.from(log.topics),
+          data: log.data,
+        });
+      } catch { return null; }
     })
-    .find((p: ethers.LogDescription | null) => p?.name === "Claimed");
+    .find((parsed) => parsed?.name === "Claimed");
 
   if (claimedEvent) {
-    console.log(`  → claimed ${formatUsdc(claimedEvent.args.amount)} USDC`);
+    console.log(`  → claimed ${formatUsdc(claimedEvent.args.amount as bigint)} USDC`);
   }
 
   /* ─── 7. Skim residual yield ─── */

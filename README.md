@@ -46,7 +46,7 @@ stress event than to UST/USDC-style breakage. On Arc the recall is a single
 onchain instruction — no AMM slippage, no cross-chain bridge risk.
 
 Residual risk is still non-zero. This contract defends against it with
-**three layers** of protection:
+**four layers** of protection:
 
 ### Layer 1 — Liquid reserve buffer
 
@@ -58,18 +58,25 @@ Every deposit splits into two parts: 95% goes into FLOAT, 5% stays liquid in
 the contract. Yield from the parked 95% has to underperform by more than the
 buffer to even threaten principal.
 
-### Layer 2 — Recall-first, pay-second
+### Layer 2 — Recall-first, pay-second (fault-tolerant)
 
 `resolve()` calls `FLOAT_VAULT.withdraw(deposits[address(this)])` *before*
-claims open. By the time the first winner clicks claim, every parked dollar
-is back in the contract. <5s on Arc.
+claims open. <5s on Arc. The call is wrapped in `try/catch`, so a transient
+vault failure (paused, insolvent, etc.) can't lock the market — it just
+forces SHORTFALL mode below.
 
 ### Layer 3 — Shortfall mode
 
-If the recalled amount is somehow less than the principal owed, the contract
-forces the outcome to `SHORTFALL`. In that mode, **every bettor — winner or
-loser — gets a pro-rata refund of what was actually recovered**. Winners
-never extract a full payout from a depleted pool.
+If the recalled amount is less than the principal owed, the contract forces
+the outcome to `SHORTFALL`. In that mode, **every bettor — winner or loser —
+gets a pro-rata refund of what was actually recovered**. Winners never
+extract a full payout from a depleted pool.
+
+### Layer 4 — Single-sided auto-cancel
+
+If `resolve()` picks a winning side that has zero stake (no one bet that way),
+the outcome is forced to `CANCELLED` and the losing side's stakes are
+refunded in full. Prevents fund-lock DoS on one-sided markets.
 
 Result: the contract degrades to "everyone gets their stake back, minus a
 small haircut" before it ever degrades to "winners get nothing."
@@ -98,7 +105,7 @@ Set up env:
 cp .env.example .env
 # fill in:
 #   PRIVATE_KEY=        (your deployer key)
-#   ARC_TESTNET_RPC=    (https://rpc-testnet.arc.network or your provider)
+#   ARC_TESTNET_RPC=    (https://rpc.testnet.arc.network or your provider)
 ```
 
 Install + compile:
@@ -126,15 +133,18 @@ npx hardhat run scripts/demo.ts --network arcTestnet
 
 This script:
 
-1. Deploys a new prediction market
-2. Has two test wallets place bets on YES and NO
-3. Shows the parked/liquid balance split
-4. Resolves the market
-5. Has the winner claim their payout
-6. Skims the accrued yield to the owner
+1. Deploys a new prediction market with a 2-minute resolution window
+2. Places a YES bet and a NO bet from the deployer wallet (1 USDC each)
+3. Shows the parked / liquid balance split (~95% in FLOAT, ~5% liquid reserve)
+4. Waits for resolution time, resolves YES, checks for shortfall
+5. Claims the winning payout
+6. Skims any residual yield / donations to the owner
 
-Watch the console output — you'll see `Parked(...)` and `Resolved(...)` events
-in real time as USDC flows in and out of FLOAT.
+Watch the console output — you'll see `Bet`, `Resolved`, and `Claimed` events
+fire as USDC flows in and out of FLOAT.
+
+The deployer wallet needs ≥ 2 USDC on Arc Testnet (grab some from
+[the Circle faucet](https://faucet.circle.com)).
 
 ---
 
